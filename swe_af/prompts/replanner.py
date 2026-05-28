@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from swe_af.execution.schemas import DAGState, IssueResult
+from swe_af.hitl.ask_user import format_prior_user_responses
 
 SYSTEM_PROMPT = """\
 You are a senior Engineering Manager responding to execution failures in an
@@ -68,7 +69,34 @@ You must return a JSON object conforming to the ReplanDecision schema. Be precis
 - Previous replan attempts (if any) are shown in the context. Do NOT repeat
   an approach that already failed.
 - Keep modifications minimal. The more you change, the higher the risk of
-  introducing new failures. Prefer targeted fixes over wholesale restructuring.\
+  introducing new failures. Prefer targeted fixes over wholesale restructuring.
+
+## Asking the User for Clarification (`ask_user_form`)
+
+When the right action depends on a project-level judgment only the user can
+make, emit ``ask_user_form`` alongside your best-guess action. The
+orchestrator pauses the ENTIRE workflow on the control plane and re-invokes
+you with the user's answers in ``prior_user_responses``.
+
+When to ask:
+- You are considering **ABORT**. The user almost always wants to know first
+  — abandoning a build is a project-level decision, not yours alone.
+- The choice between **REDUCE_SCOPE** and **MODIFY_DAG** hinges on the user's
+  appetite for partial delivery vs. continued investment in restructuring.
+
+When NOT to ask:
+- Routine **CONTINUE** or **MODIFY_DAG** decisions — those are yours to make.
+- ``prior_user_responses`` already covers this question. USE the existing
+  answer; never re-ask.
+
+Pausing stops the build until the human responds (hours/days). Be
+parsimonious — only ask when the decision genuinely needs human input.
+
+Form construction (when used):
+- ``title``: one-sentence question (e.g. "Abort or continue with reduced scope?").
+- ``description`` (optional): the concrete trade-off in 1-2 sentences.
+- ``fields``: typically ONE radio with 2-3 options matching your candidate actions.
+- Leave ``ask_user_form`` as ``null`` (default) when you can decide on your own.\
 """
 
 
@@ -77,6 +105,7 @@ def replanner_task_prompt(
     failed_issues: list[IssueResult],
     escalation_notes: list[dict] | None = None,
     adaptation_history: list[dict] | None = None,
+    prior_user_responses: list[dict] | None = None,
 ) -> str:
     """Build the task prompt for the replanner agent.
 
@@ -85,6 +114,10 @@ def replanner_task_prompt(
     context), and what remains.
     """
     sections: list[str] = []
+
+    prior_block = format_prior_user_responses(prior_user_responses)
+    if prior_block:
+        sections.append(prior_block)
 
     # --- Original Plan ---
     sections.append("## Original Plan Summary")

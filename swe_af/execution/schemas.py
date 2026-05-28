@@ -16,6 +16,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from swe_af.hitl.ask_user import AskUserForm
 from swe_af.runtime.providers import RUNTIME_VALUES, runtime_to_harness_provider
 
 # Global default for all agent max_turns. Change this one value to adjust everywhere.
@@ -214,6 +215,8 @@ class IssueAdvisorDecision(BaseModel):
     # Always
     downstream_impact: str = ""
     summary: str = ""
+    # HITL — see swe_af/hitl/ for semantics
+    ask_user_form: AskUserForm | None = None
 
 
 class IssueResult(BaseModel):
@@ -266,6 +269,8 @@ class ReplanDecision(BaseModel):
     skipped_issue_names: list[str] = []
     new_issues: list[dict] = []
     summary: str = ""
+    # HITL — see swe_af/hitl/ for semantics
+    ask_user_form: AskUserForm | None = None
 
 
 class DAGState(BaseModel):

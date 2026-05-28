@@ -8,6 +8,7 @@ split, accept with debt, or escalate to the outer replanner).
 from __future__ import annotations
 
 from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.hitl.ask_user import format_prior_user_responses
 from swe_af.prompts._utils import workspace_context_block
 
 SYSTEM_PROMPT = """\
@@ -84,7 +85,39 @@ You have read-only access to the codebase:
 - READ files to inspect source code and the worktree
 - GLOB to find files by pattern
 - GREP to search for patterns
-- BASH for read-only commands (ls, git log, git diff, test runs, etc.)\
+- BASH for read-only commands (ls, git log, git diff, test runs, etc.)
+
+## Asking the User for Clarification (`ask_user_form`)
+
+When you genuinely cannot judge between two valid actions, emit
+``ask_user_form`` alongside your best-guess action. The orchestrator pauses
+the ENTIRE workflow on the control plane, shows the user a form, and
+re-invokes you once they submit. Their answers arrive in
+``prior_user_responses`` on the next call.
+
+When to ask:
+- Choosing between RETRY_MODIFIED and ACCEPT_WITH_DEBT and the trade-off
+  hinges on the user's risk tolerance.
+- Multiple acceptance criteria are failing and you don't know which ones the
+  user considers acceptable as debt.
+- Considering ESCALATE_TO_REPLAN but unsure whether the user wants to keep
+  iterating at all.
+
+When NOT to ask:
+- The right action is obvious from the failure context.
+- ``prior_user_responses`` already covers this question — USE the existing
+  answer, do not re-ask.
+- You're just looking for confirmation. Bias toward deciding.
+
+Pausing stops the build until the human responds (potentially hours/days).
+Be parsimonious. Each ask should genuinely change the decision.
+
+Form construction (when used):
+- ``title``: one-sentence question, plain English.
+- ``description`` (optional): brief context for why you're asking.
+- ``fields``: typically ONE radio or select field with 2-3 concrete options
+  matching your candidate actions.
+- Leave ``ask_user_form`` as ``null`` (default) when you can decide on your own.\
 """
 
 
@@ -99,6 +132,7 @@ def issue_advisor_task_prompt(
     previous_adaptations: list[dict] | None = None,
     worktree_path: str = "",
     workspace_manifest: WorkspaceManifest | None = None,
+    prior_user_responses: list[dict] | None = None,
 ) -> str:
     """Build the task prompt for the Issue Advisor agent.
 
@@ -120,6 +154,10 @@ def issue_advisor_task_prompt(
     ws_block = workspace_context_block(workspace_manifest)
     if ws_block:
         sections.append(ws_block)
+
+    prior_block = format_prior_user_responses(prior_user_responses)
+    if prior_block:
+        sections.append(prior_block)
 
     # Budget awareness
     remaining = max_advisor_invocations - advisor_invocation

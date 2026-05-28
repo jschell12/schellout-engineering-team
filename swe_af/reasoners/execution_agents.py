@@ -217,6 +217,7 @@ async def run_issue_advisor(
     permission_mode: str = "",
     ai_provider: str = "claude",
     workspace_manifest: dict | None = None,
+    prior_user_responses: list[dict] | None = None,
 ) -> dict:
     """Analyze a coding loop failure and decide how to adapt.
 
@@ -231,23 +232,32 @@ async def run_issue_advisor(
 
     ws_manifest = _maybe_workspace_manifest(workspace_manifest)
 
-    task_prompt = issue_advisor_task_prompt(
-        issue=issue,
-        original_issue=original_issue,
-        failure_result=failure_result,
-        iteration_history=iteration_history,
-        dag_state_summary=dag_state_summary,
-        advisor_invocation=advisor_invocation,
-        max_advisor_invocations=max_advisor_invocations,
-        previous_adaptations=previous_adaptations,
-        worktree_path=worktree_path,
-        workspace_manifest=ws_manifest,
-    )
-
     cwd = worktree_path or dag_state_summary.get("repo_path", ".")
     provider = runtime_to_harness_adapter(ai_provider)
 
-    try:
+    from swe_af.hitl import (  # noqa: PLC0415
+        AskUserBudget,
+        approval_webhook_url,
+        build_hax_client_from_env,
+        run_with_ask_user,
+    )
+
+    async def _invoke_advisor(
+        prior_user_responses: list[dict] | None,
+    ) -> IssueAdvisorDecision | None:
+        task_prompt = issue_advisor_task_prompt(
+            issue=issue,
+            original_issue=original_issue,
+            failure_result=failure_result,
+            iteration_history=iteration_history,
+            dag_state_summary=dag_state_summary,
+            advisor_invocation=advisor_invocation,
+            max_advisor_invocations=max_advisor_invocations,
+            previous_adaptations=previous_adaptations,
+            worktree_path=worktree_path,
+            workspace_manifest=ws_manifest,
+            prior_user_responses=prior_user_responses,
+        )
         result = await router.harness(
             task_prompt,
             system_prompt=ISSUE_ADVISOR_SYSTEM_PROMPT,
@@ -260,12 +270,25 @@ async def run_issue_advisor(
             permission_mode=permission_mode or None,
         )
         check_fatal_harness_error(result)
-        if result.parsed is not None:
+        return result.parsed
+
+    try:
+        initial_prior = list(prior_user_responses or [])
+        parsed = await run_with_ask_user(
+            reasoner_fn=_invoke_advisor,
+            reasoner_kwargs={"prior_user_responses": initial_prior},
+            app=router,
+            hax_client=build_hax_client_from_env(),
+            budget=AskUserBudget(remaining=2),
+            webhook_url=approval_webhook_url(router),
+            note_label="issue_advisor",
+        )
+        if parsed is not None:
             router.note(
-                f"Issue advisor decision: {result.parsed.action.value} — {result.parsed.summary}",
+                f"Issue advisor decision: {parsed.action.value} — {parsed.summary}",
                 tags=["issue_advisor", "complete"],
             )
-            return result.parsed.model_dump()
+            return parsed.model_dump()
     except FatalHarnessError:
         raise  # Non-retryable — propagate immediately
     except Exception as e:
@@ -300,6 +323,7 @@ async def run_replanner(
     permission_mode: str = "",
     ai_provider: str = "claude",
     escalation_notes: list[dict] | None = None,
+    prior_user_responses: list[dict] | None = None,
 ) -> dict:
     """Invoke the replanner to decide how to handle unrecoverable failures.
 
@@ -315,21 +339,30 @@ async def run_replanner(
         tags=["replanner", "start"],
     )
 
-    task_prompt = replanner_task_prompt(
-        state,
-        failures,
-        escalation_notes=escalation_notes,
-        adaptation_history=state.adaptation_history
-        if hasattr(state, "adaptation_history")
-        else [],
-    )
-
     log_dir = os.path.join(state.artifacts_dir, "logs") if state.artifacts_dir else None
     provider = runtime_to_harness_adapter(ai_provider)
 
-    current_prompt = task_prompt
-    for attempt in range(2):
-        try:
+    from swe_af.hitl import (  # noqa: PLC0415
+        AskUserBudget,
+        approval_webhook_url,
+        build_hax_client_from_env,
+        run_with_ask_user,
+    )
+
+    async def _invoke_replanner(
+        prior_user_responses: list[dict] | None,
+    ) -> ReplanDecision | None:
+        task_prompt = replanner_task_prompt(
+            state,
+            failures,
+            escalation_notes=escalation_notes,
+            adaptation_history=state.adaptation_history
+            if hasattr(state, "adaptation_history")
+            else [],
+            prior_user_responses=prior_user_responses,
+        )
+        current_prompt = task_prompt
+        for attempt in range(2):
             result = await router.harness(
                 current_prompt,
                 system_prompt=REPLANNER_SYSTEM_PROMPT,
@@ -342,7 +375,6 @@ async def run_replanner(
                 permission_mode=permission_mode or None,
             )
             check_fatal_harness_error(result)
-            # Log raw response for debugging (even on parse failure)
             if log_dir:
                 raw_log = os.path.join(
                     log_dir, f"replanner_{state.replan_count}_raw_{attempt}.txt"
@@ -350,15 +382,8 @@ async def run_replanner(
                 os.makedirs(log_dir, exist_ok=True)
                 with open(raw_log, "w") as f:
                     f.write(getattr(result, "text", "") or "(empty)")
-
             if result.parsed is not None:
-                router.note(
-                    f"Replan decision: {result.parsed.action.value} — {result.parsed.summary}",
-                    tags=["replanner", "complete"],
-                )
-                return result.parsed.model_dump()
-
-            # Parse failed — retry with tighter prompt
+                return result.parsed
             router.note(
                 f"Replanner produced unparseable output (attempt {attempt + 1}): "
                 f"{(getattr(result, 'text', '') or '')[:500]}",
@@ -369,13 +394,32 @@ async def run_replanner(
                 "Output ONLY valid JSON conforming to the ReplanDecision schema.\n\n"
                 + task_prompt
             )
-        except FatalHarnessError:
-            raise  # Non-retryable — propagate immediately
-        except Exception as e:
+        return None
+
+    try:
+        initial_prior = list(prior_user_responses or [])
+        parsed = await run_with_ask_user(
+            reasoner_fn=_invoke_replanner,
+            reasoner_kwargs={"prior_user_responses": initial_prior},
+            app=router,
+            hax_client=build_hax_client_from_env(),
+            budget=AskUserBudget(remaining=2),
+            webhook_url=approval_webhook_url(router),
+            note_label="replanner",
+        )
+        if parsed is not None:
             router.note(
-                f"Replanner agent failed (attempt {attempt + 1}): {e}",
-                tags=["replanner", "error"],
+                f"Replan decision: {parsed.action.value} — {parsed.summary}",
+                tags=["replanner", "complete"],
             )
+            return parsed.model_dump()
+    except FatalHarnessError:
+        raise  # Non-retryable — propagate immediately
+    except Exception as e:
+        router.note(
+            f"Replanner agent failed: {e}",
+            tags=["replanner", "error"],
+        )
 
     # Pitfall 5 fix: fall back to CONTINUE, not ABORT
     # Skip downstream of failed issues but don't kill the pipeline
