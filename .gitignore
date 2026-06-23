@@ -50,3 +50,7 @@ build/
 
 # Pipeline output files
 .claude_output_*.json
+
+# E2E / SWE-bench fixtures and run outputs (large, generated locally)
+staged_repos/
+artifacts/

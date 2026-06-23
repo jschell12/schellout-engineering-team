@@ -1,0 +1,15 @@
+services:
+  control-plane:
+    ports:
+      - "8093:8080"
+
+  swe-agent:
+    environment:
+      - AGENTFIELD_SERVER=http://control-plane:8080
+      - AGENT_CALLBACK_URL=http://swe-agent:8003
+      - SWE_DEFAULT_RUNTIME=open_code
+      - SWE_DEFAULT_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - HARNESS_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - OPENCODE_MODEL=openrouter/deepseek/deepseek-v4-pro
+    ports:
+      - "8013:8003"

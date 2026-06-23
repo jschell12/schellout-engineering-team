@@ -1,0 +1,25 @@
+services:
+  swe-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      - AGENTFIELD_SERVER=http://pr-af-agentfield-1:8080
+      - NODE_ID=swe-planner
+      - PORT=8003
+      - AGENT_CALLBACK_URL=http://swe-agent:8003
+    ports:
+      - "8003:8003"
+    volumes:
+      - /tmp/af-swe-test-repo:/workspaces/test-repo
+      - swe-artifacts:/workspaces/artifacts
+    networks:
+      - pr-af_default
+
+volumes:
+  swe-artifacts:
+
+networks:
+  pr-af_default:
+    external: true

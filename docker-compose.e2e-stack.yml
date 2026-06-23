@@ -1,0 +1,35 @@
+services:
+  control-plane:
+    image: agentfield/control-plane:latest
+    ports:
+      - "8093:8080"
+    environment:
+      - AGENTFIELD_HTTP_ADDR=0.0.0.0:8080
+      - AGENTFIELD_STORAGE_MODE=local
+    volumes:
+      - agentfield-data:/data
+
+  swe-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      - AGENTFIELD_SERVER=http://control-plane:8080
+      - NODE_ID=swe-planner
+      - PORT=8003
+      - AGENT_CALLBACK_URL=http://swe-agent:8003
+      - SWE_DEFAULT_RUNTIME=open_code
+      - SWE_DEFAULT_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - HARNESS_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - OPENCODE_MODEL=openrouter/deepseek/deepseek-v4-pro
+    ports:
+      - "8013:8003"
+    volumes:
+      - workspaces:/workspaces
+    depends_on:
+      - control-plane
+
+volumes:
+  agentfield-data:
+  workspaces:

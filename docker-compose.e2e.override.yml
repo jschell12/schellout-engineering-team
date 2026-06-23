@@ -1,0 +1,8 @@
+services:
+  swe-agent:
+    environment:
+      - AGENT_CALLBACK_URL=http://host.docker.internal:8003
+      - SWE_DEFAULT_RUNTIME=open_code
+      - SWE_DEFAULT_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - HARNESS_MODEL=openrouter/deepseek/deepseek-v4-pro
+      - OPENCODE_MODEL=openrouter/deepseek/deepseek-v4-pro

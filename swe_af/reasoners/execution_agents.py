@@ -129,6 +129,11 @@ def _build_issue_results(failed_issues: list[dict]):
     return [IssueResult(**f) for f in failed_issues]
 
 
+def _extract_ai_parsed(result):
+    """Return structured output from either an AI result wrapper or direct model."""
+    return getattr(result, "parsed", result)
+
+
 # ---------------------------------------------------------------------------
 # Reasoners
 # ---------------------------------------------------------------------------
@@ -349,14 +354,15 @@ async def run_replanner_triage_gate(
             schema=ReplannerTriageGate,
             model=model,
         )
-        if result.parsed is not None:
+        parsed = _extract_ai_parsed(result)
+        if parsed is not None:
             router.note(
-                f"Replanner triage gate: type={result.parsed.failure_type}, "
-                f"action={result.parsed.recommended_action}, "
-                f"confident={result.parsed.confident}",
+                f"Replanner triage gate: type={parsed.failure_type}, "
+                f"action={parsed.recommended_action}, "
+                f"confident={parsed.confident}",
                 tags=["replanner_triage_gate", "complete"],
             )
-            return result.parsed.model_dump()
+            return parsed.model_dump()
     except Exception as e:
         router.note(
             f"Replanner triage gate failed: {e}",
@@ -826,13 +832,14 @@ async def run_merge_conflict_gate(
             schema=MergeConflictGate,
             model=model,
         )
-        if result.parsed is not None:
+        parsed = _extract_ai_parsed(result)
+        if parsed is not None:
             router.note(
-                f"Merge conflict gate: will_conflict={result.parsed.will_conflict}, "
-                f"confident={result.parsed.confident}, reason={result.parsed.reason}",
+                f"Merge conflict gate: will_conflict={parsed.will_conflict}, "
+                f"confident={parsed.confident}, reason={parsed.reason}",
                 tags=["merge_conflict_gate", "complete"],
             )
-            return result.parsed.model_dump()
+            return parsed.model_dump()
     except Exception as e:
         router.note(
             f"Merge conflict gate failed: {e}",
@@ -1324,13 +1331,14 @@ async def run_issue_complexity_gate(
             schema=IssueComplexityGate,
             model=model,
         )
-        if result.parsed is not None:
+        parsed = _extract_ai_parsed(result)
+        if parsed is not None:
             router.note(
-                f"Issue complexity gate complete: complexity={result.parsed.complexity}, "
-                f"needs_qa={result.parsed.needs_qa}, confident={result.parsed.confident}",
+                f"Issue complexity gate complete: complexity={parsed.complexity}, "
+                f"needs_qa={parsed.needs_qa}, confident={parsed.confident}",
                 tags=["issue_complexity_gate", "complete"],
             )
-            return result.parsed.model_dump()
+            return parsed.model_dump()
     except Exception as e:
         router.note(
             f"Issue complexity gate failed: {e}",
@@ -1378,14 +1386,15 @@ async def run_review_sanity_gate(
             schema=ReviewSanityGate,
             model=model,
         )
-        if result.parsed is not None:
+        parsed = _extract_ai_parsed(result)
+        if parsed is not None:
             router.note(
                 f"Review sanity gate complete: {issue_name}, "
-                f"action={result.parsed.action}, "
-                f"confident={result.parsed.confident}",
+                f"action={parsed.action}, "
+                f"confident={parsed.confident}",
                 tags=["review_sanity_gate", "complete"],
             )
-            out = result.parsed.model_dump()
+            out = parsed.model_dump()
             out["iteration_id"] = iteration_id
             return out
     except Exception as e:
@@ -1515,13 +1524,14 @@ async def run_qa_synthesizer(
             schema=QASynthesisResult,
             model=model,
         )
-        if result.parsed is not None:
+        parsed = _extract_ai_parsed(result)
+        if parsed is not None:
             router.note(
-                f"QA synthesizer complete: action={result.parsed.action.value}, "
-                f"stuck={result.parsed.stuck}",
+                f"QA synthesizer complete: action={parsed.action.value}, "
+                f"stuck={parsed.stuck}",
                 tags=["qa_synthesizer", "complete"],
             )
-            out = result.parsed.model_dump()
+            out = parsed.model_dump()
             out["iteration_id"] = iteration_id
             return out
     except FatalHarnessError:

@@ -610,6 +610,7 @@ async def run_coding_loop(
     # Extract guidance (needs_deeper_qa kept in schema for backward compat,
     # but no longer used for path selection — QA always runs)
     guidance = issue.get("guidance") or {}
+    needs_deeper_qa = guidance.get("needs_deeper_qa", False)
 
     # Runtime complexity classification (replaces static needs_deeper_qa)
     try:
