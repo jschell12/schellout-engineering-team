@@ -1,3 +1,4 @@
+config_version: v1            # manifest schema version (omit = legacy v0)
 name: swe-planner
 version: 0.1.0
 description: SWE planning/execution agent node (plans and executes software-engineering tasks)
