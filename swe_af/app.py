@@ -21,21 +21,7 @@ from swe_af.reasoners import router
 from swe_af.reasoners.pipeline import _assign_sequence_numbers, _compute_levels, _validate_file_conflicts
 from swe_af.reasoners.schemas import PlanResult, ReviewResult
 
-from agentfield import Agent
-
-try:
-    # Added in a later agentfield SDK release. When present, raising it makes a
-    # reasoner report `failed` to the control plane while preserving its
-    # structured result. The fallback keeps SWE-AF importable against older SDKs
-    # — raising the shim still flips the execution to `failed` via the SDK's
-    # generic exception path (the result just isn't carried onto the record).
-    from agentfield import ReasonerFailed  # type: ignore
-except ImportError:  # pragma: no cover - exercised only on older agentfield SDKs
-    class ReasonerFailed(Exception):  # type: ignore[no-redef]
-        def __init__(self, message: str, *, result=None, error_details=None) -> None:
-            super().__init__(message)
-            self.result = result
-            self.error_details = error_details
+from swe_af.local_agent import LocalAgent as Agent, ReasonerFailed
 from swe_af.execution.envelope import unwrap_call_result as _unwrap
 from swe_af.execution.schemas import (
     BuildConfig,
@@ -50,47 +36,12 @@ from swe_af.execution.schemas import (
 
 NODE_ID = os.getenv("NODE_ID", "swe-planner")
 
-app = Agent(
-    node_id=NODE_ID,
-    version="1.0.0",
-    description="Autonomous SWE planning pipeline",
-    agentfield_server=os.getenv("AGENTFIELD_SERVER", "http://localhost:8080"),
-    api_key=os.getenv("AGENTFIELD_API_KEY"),
-)
+app = Agent(node_id=NODE_ID)
 
 app.include_router(router)
 
 
-# ---------------------------------------------------------------------------
-# Auto-inject scoped credentials into every router.harness call.
-#
-# The environment scout negotiates credentials with the user (via Hax) and
-# stashes them in process-local memory keyed by the build's run_id. Without
-# this wrapper, downstream reasoners would each have to explicitly call
-# ``env=harness_env_for(router)`` at every harness call site (25+ places).
-# Patching the Agent's bound ``harness`` method once means every reasoner
-# — existing and future — automatically gets the negotiated credentials
-# merged into the subprocess env, with zero per-call-site changes.
-#
-# Precedence: scoped credentials win over the inherited process env so a
-# fresh scout token overrides any stale value carried by os.environ.
-# Callers MAY still pass an explicit ``env=`` dict; we treat it as the
-# base, then merge scoped creds on top.
-# ---------------------------------------------------------------------------
-_original_harness = app.harness
-
-
-async def _harness_with_scoped_credentials(*args, env=None, **kwargs):
-    from swe_af.hitl import inject_credentials_into_env  # noqa: PLC0415
-
-    ctx = getattr(app, "ctx", None)
-    run_id = (getattr(ctx, "run_id", None) if ctx else None) or ""
-    base_env = dict(os.environ) if env is None else dict(env)
-    merged_env = inject_credentials_into_env(base_env, run_id)
-    return await _original_harness(*args, env=merged_env, **kwargs)
-
-
-app.harness = _harness_with_scoped_credentials
+# Credential injection not needed in standalone mode — env vars are inherited directly.
 
 
 async def _clone_repos(
