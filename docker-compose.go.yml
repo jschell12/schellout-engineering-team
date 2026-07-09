@@ -1,0 +1,106 @@
+# Go-node stack — mirror of docker-compose.yml but building the Go binaries from
+# go/Dockerfile instead of the Python image. The Python docker-compose.yml is
+# left untouched so both stacks can be brought up independently.
+#
+#   docker compose -f docker-compose.go.yml up
+#
+# The build context is the SWE-AF repo root (so the go/ module is available) and
+# the Dockerfile clones the AgentField Go SDK at a pinned ref (override with
+# --build-arg AGENTFIELD_SDK_REF=<sha>). Env pass-through matches the Python
+# compose exactly (env_file: .env plus the explicit overrides below).
+services:
+  control-plane:
+    image: agentfield/control-plane:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - AGENTFIELD_HTTP_ADDR=0.0.0.0:8080
+      - AGENTFIELD_STORAGE_MODE=local
+    volumes:
+      - agentfield-data:/data
+
+  # Ephemeral Postgres for build-time integration checks. Repo-agnostic: it
+  # ships an empty database and the *target repo's own* integration global-setup
+  # migrates it, so the factory needs no schema knowledge. Tests that hard-require
+  # a DB (e.g. REQUIRE_TEST_DB=1 …) can connect via DATABASE_URL_TEST instead of
+  # failing at the connection layer (pg-pool ECONNREFUSED) and cascading.
+  #
+  # The data is intentionally throwaway (no volume). One shared DB means
+  # DB-dependent builds should run one at a time; per-build databases would be
+  # the next step if concurrent DB builds are needed.
+  build-db:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=${BUILD_DB_USER:-builder}
+      - POSTGRES_PASSWORD=${BUILD_DB_PASSWORD:-builder}
+      - POSTGRES_DB=${BUILD_DB_NAME:-buildtest}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BUILD_DB_USER:-builder} -d ${BUILD_DB_NAME:-buildtest}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  swe-agent:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    env_file: .env
+    environment:
+      - AGENTFIELD_SERVER=http://control-plane:8080
+      - NODE_ID=swe-planner
+      - PORT=8003
+      - AGENT_CALLBACK_URL=http://swe-agent:8003
+      - SWE_DEFAULT_RUNTIME=${SWE_DEFAULT_RUNTIME:-claude_code}
+      - SWE_DEFAULT_MODEL=${SWE_DEFAULT_MODEL:-}
+      - SWE_CODEX_AUTH_MODE=${SWE_CODEX_AUTH_MODE:-auto}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DATABASE_URL_TEST=${DATABASE_URL_TEST:-postgres://builder:builder@build-db:5432/buildtest}
+    ports:
+      - "8003:8003"
+    volumes:
+      - workspaces:/workspaces
+      - ${HOME}/.codex:/root/.codex
+    depends_on:
+      control-plane:
+        condition: service_started
+      build-db:
+        condition: service_healthy
+    deploy:
+      replicas: 1  # Scale with: docker compose -f docker-compose.go.yml up --scale swe-agent=3
+
+  swe-fast:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    command: ["/usr/local/bin/swe-fast"]
+    env_file: .env
+    environment:
+      - AGENTFIELD_SERVER=http://control-plane:8080
+      - NODE_ID=swe-fast
+      - PORT=8004
+      - AGENT_CALLBACK_URL=http://swe-fast:8004
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      - GH_TOKEN=${GH_TOKEN}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - OPENCODE_MODEL=${OPENCODE_MODEL:-}
+      - SWE_DEFAULT_RUNTIME=${SWE_DEFAULT_RUNTIME:-claude_code}
+      - SWE_DEFAULT_MODEL=${SWE_DEFAULT_MODEL:-}
+      - SWE_CODEX_AUTH_MODE=${SWE_CODEX_AUTH_MODE:-auto}
+      - DATABASE_URL_TEST=${DATABASE_URL_TEST:-postgres://builder:builder@build-db:5432/buildtest}
+    ports:
+      - "8004:8004"
+    volumes:
+      - workspaces:/workspaces
+      - ${HOME}/.codex:/root/.codex
+    depends_on:
+      control-plane:
+        condition: service_started
+      build-db:
+        condition: service_healthy
+
+volumes:
+  agentfield-data:
+  workspaces:

@@ -2,7 +2,7 @@
 # Mirrors the acceptance gate used by every port task and CI (design §10):
 #   go build ./... && go vet ./... && go test ./...
 
-.PHONY: build vet test check lint run-planner run-fast
+.PHONY: build vet test check lint run-planner run-fast docker-build docker-up docker-down
 
 # Compile every package in the module.
 build:
@@ -31,3 +31,26 @@ run-planner:
 # Run the fast-mode node (swe-fast, default port 8004).
 run-fast:
 	go run ./cmd/swe-fast
+
+# --- Docker (multi-stage image + Go-node compose stack) -------------------
+# These operate on the repo root (one level up) because the Dockerfile build
+# context is the SWE-AF root (so the go/ module is in context) and the compose
+# file (docker-compose.go.yml) lives there too. The image tag and the pinned
+# AgentField SDK ref are overridable:
+#   make docker-build IMAGE=myrepo/swe-af-go:dev AGENTFIELD_SDK_REF=<sha>
+IMAGE ?= swe-af-go:latest
+AGENTFIELD_SDK_REF ?= 26a479ef6852788a36dc85cdd2cf2867f52a173e
+
+# Build the multi-stage Go image from the repo root.
+docker-build:
+	docker build -f Dockerfile \
+		--build-arg AGENTFIELD_SDK_REF=$(AGENTFIELD_SDK_REF) \
+		-t $(IMAGE) ..
+
+# Bring up the Go-node stack (control-plane + swe-agent:8003 + swe-fast:8004).
+docker-up:
+	docker compose -f ../docker-compose.go.yml up --build
+
+# Tear the Go-node stack down.
+docker-down:
+	docker compose -f ../docker-compose.go.yml down
