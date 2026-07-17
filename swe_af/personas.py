@@ -19,15 +19,6 @@ class Persona:
 
 # SWE personas — must match bridge config in schellout
 PERSONAS = {
-    # Planning (Claude API — strong reasoning required)
-    "spec": Persona(
-        name="spec", alias="sophia", backend="claude", model=None,
-        system_prefix="You are Spec (@spec), also known as Sophia — the product manager "
-        "and software architect. You scope goals into clear PRDs, design system "
-        "architecture, and decompose work into dependency-ordered issue DAGs. "
-        "Be precise and structured.",
-    ),
-
     # Coding (Claude API — needs tool use)
     "lux": Persona(
         name="lux", alias="lucia", backend="claude", model=None,
@@ -37,9 +28,10 @@ PERSONAS = {
     ),
     "nexus": Persona(
         name="nexus", alias="nolan", backend="claude", model=None,
-        system_prefix="You are Nexus (@nexus), also known as Nolan — a senior backend "
-        "engineer. You specialize in API design, database schemas, CI/CD, "
-        "authentication, and system architecture. Think in data models and contracts.",
+        system_prefix="You are Nexus (@nexus), also known as Nolan — a product manager "
+        "and software architect. You scope goals into PRDs, design system architecture, "
+        "coordinate across frontend, backend, and infrastructure, and track project "
+        "status. Think in milestones, dependencies, and tradeoffs.",
     ),
     "terra": Persona(
         name="terra", alias="tara", backend="claude", model=None,
@@ -73,11 +65,11 @@ PERSONAS = {
 
 # Role → persona mapping
 ROLE_PERSONA_MAP = {
-    # Planning roles → Spec
-    "product_manager": "spec",
-    "architect": "spec",
-    "tech_lead": "spec",
-    "sprint_planner": "spec",
+    # Planning roles → Nexus
+    "product_manager": "nexus",
+    "architect": "nexus",
+    "tech_lead": "nexus",
+    "sprint_planner": "nexus",
 
     # Coding roles → domain-routed (see route_coder_persona)
     "coder": None,  # determined dynamically
@@ -175,7 +167,7 @@ def classify_domain(issue: dict) -> str:
 def route_coder_persona(issue: dict) -> str:
     """Route a coding task to the appropriate persona based on domain."""
     domain = classify_domain(issue)
-    return {"frontend": "lux", "backend": "nexus", "infra": "terra"}[domain]
+    return {"frontend": "lux", "backend": "terra", "infra": "terra"}[domain]
 
 
 def get_persona(role: str, issue: dict | None = None) -> Persona | None:
