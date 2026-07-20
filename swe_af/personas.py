@@ -54,13 +54,6 @@ PERSONAS = {
         "edge cases. Be thorough and methodical.",
     ),
 
-    # Failure diagnosis (Claude API — needs strong reasoning)
-    "triage": Persona(
-        name="triage", alias="trevor", backend="claude", model=None,
-        system_prefix="You are Triage (@triage), also known as Trevor — an issue "
-        "advisor and build verifier. You diagnose why tasks fail, decide whether to "
-        "retry/split/escalate, and verify acceptance criteria. Be analytical.",
-    ),
 }
 
 # Role → persona mapping
@@ -80,11 +73,11 @@ ROLE_PERSONA_MAP = {
     "qa_synthesizer": "audit",
     "integration_tester": "test",
 
-    # Failure handling → Triage
-    "retry_advisor": "triage",
-    "issue_advisor": "triage",
-    "replanner": "triage",
-    "verifier": "triage",
+    # Failure handling → Nexus (planning/oversight) or Audit (verification)
+    "retry_advisor": "nexus",
+    "issue_advisor": "nexus",
+    "replanner": "nexus",
+    "verifier": "audit",
 
     # Mechanical roles → no persona (use default Claude)
     "issue_writer": None,
